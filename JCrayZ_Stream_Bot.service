@@ -1,0 +1,13 @@
+[Unit]
+Description=JCrayZ_Stream_Bot
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=60
+WorkingDirectory=/home/admin/python-scripts/JCrayZ_Stream_Bot
+ExecStart=/home/admin/python-scripts/JCrayZ_Stream_Bot/env/bin/python3 /home/admin/python-scripts/JCrayZ_Stream_Bot/bot.py --serve-in-foreground
+User=admin
+
+[Install]
+WantedBy=multi-user.target
