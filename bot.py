@@ -1,6 +1,7 @@
 from typing import Optional, Union, Dict, List
-from pathlib import Path
 from importlib import reload
+from pathlib import Path
+import logging
 import time
 import json
 
@@ -10,7 +11,7 @@ import timeout_decorator
 import requests
 
 import utils
-import advanced_commands
+import commands
 
 
 @timeout_decorator.timeout(0.1)
@@ -19,11 +20,17 @@ def check_socket(sock):
 
 
 def main_loop():
-    def print_time(print_context):
-        if do_print_time:
-            print(print_context, time.time() - start_time)
-
-    do_print_time = True
+    def check_update(update: str):
+        if update == "commands":
+            basic_commands = utils.load_json(script_dir / "basic_commands.json")
+            global commands
+            commands = reload(commands)
+        elif update == "users":
+            users = utils.load_json(script_dir / "users.json")
+        elif update == "monitored_posts":
+            monitored_posts = utils.load_json(script_dir / "monitored_posts.json")
+        elif update == "monitored_streams":
+            monitored_streams = utils.load_json(script_dir / "monitored_streams.json")
 
     script_dir = Path(__file__).resolve().parent
 
@@ -58,17 +65,15 @@ def main_loop():
             "source": reddit.inbox,
         }
     )
-
     open_websockets = {}
+
     while True:
         new_messages = []
-        start_time = time.time()
-        print("start")
         for open_stream in open_streams:
+            logging.debug(f"Checking praw stream {open_stream['source']}")
             # Check for new rpan stream
             if type(open_stream["source"]) == praw.models.Redditor:
                 for submission in open_stream["stream"]:
-                    print_time("checking streams:")
                     if submission is None:
                         break
                     if not submission.subreddit in monitored_subreddits:
@@ -78,15 +83,16 @@ def main_loop():
                         monitored_streams[submission.id] = None
 
                         utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
-
-                    for subscriber in users["subscribers"]:
-                        reddit.redditor(subscriber).message(
-                            f"Hi {subscriber}, {open_stream['source']} is live on {submission.subreddit}!",
-                            f"[{submission.title}]({submission.shortlink})",
+                        logging.info(
+                            f"{open_stream['source']} has gone live on {submission.subreddit} at ({submission.shortlink}) notifing {len(users['subscribers'])} subscribers."
                         )
 
-                        print_time("subscribers:")
-                        time.sleep(1)
+                        for subscriber in users["subscribers"]:
+                            reddit.redditor(subscriber).message(
+                                f"Hi {subscriber}, {open_stream['source']} is live on {submission.subreddit}!",
+                                f"[{submission.title}]({submission.shortlink})",
+                            )
+                            logging.debug(f"Sent subscriber {subscriber} gone live message.")
 
             # Check for new inbox messages
             elif type(open_stream["source"]) == praw.models.inbox.Inbox:
@@ -103,47 +109,45 @@ def main_loop():
                         }
                     )
 
-                print_time("checked inbox:")
-
         # check posts
         save_posts = False
         for post_id, comment_count in monitored_posts.items():
+            logging.debug(f"Checking post {post_id}")
             post_messages = []
             comment_list = reddit.submission(post_id).comments.list()
             comment_list.sort(key=lambda comment: comment.created)
-            post_messages = [
-                {
-                    "message": comment,
-                    "body": comment.body,
-                    "author": comment.author.name,
-                    "context": "post",
-                    "submission_id": comment.submission.id,
-                }
-                for comment in comment_list[comment_count:]
-            ]
-            if post_messages:
+
+            for comment in comment_list[comment_count:]:
+                author = comment.author.name
+
+                if author == reddit.user.me().name:
+                    continue
+
+                new_post_messages.append(
+                    {
+                        "message": comment,
+                        "body": comment.body,
+                        "author": author,
+                        "context": "post",
+                        "submission_id": comment.submission.id,
+                    }
+                )
+
+            new_messages += new_post_messages
+            logging.debug(f"{len(new_post_messages)} new comments at {post_id}")
+
+            if new_post_messages:
+                monitored_posts[post_id] = len(comment_list)
                 save_posts = True
-            new_messages += post_messages
-            monitored_posts[post_id] = len(comment_list)
 
         if save_posts:
             utils.save_json(script_dir / "monitored_posts.json", monitored_posts)
 
-        print_time("posts checked:")
-
-        # remove old sockets
-        for post_id in list(open_websockets.keys()):
-            if post_id not in monitored_streams:
-                # reddit.submission(post_id).reply("Has left the chat.")
-                open_websockets[post_id].close()
-                open_websockets.pop(post_id)
-
-        print_time("sockets removed:")
-
-        # add sockets
+        # add new sockets
         save_streams = False
         for post_id, web_socket_link in monitored_streams.items():
             if post_id not in open_websockets:
+                logging.debug(f"Attempting to connect new socket for {post_id}")
                 submission = reddit.submission(post_id)
                 if web_socket_link is None:
                     response = requests.get(
@@ -154,110 +158,100 @@ def main_loop():
                         },
                     )
                     if not response.ok:
+                        logging.warning(f"Failed connecting new socket for {post_id}")
                         continue
-                    monitored_streams[post_id] = response.json()["data"]["post"][
-                        "liveCommentsWebsocket"
-                    ]
 
-                open_websockets[post_id] = websocket.create_connection(monitored_streams[post_id])
-                save_streams = True
+                    websocket_address = response.json()["data"]["post"]["liveCommentsWebsocket"]
+                    if monitored_streams[post_id] != websocket_address:
+                        monitored_streams[post_id] = websocket_address
+                        save_streams = True
+
+                open_websockets[post_id] = websocket.create_connection(websocket_address)
+                logging.debug(f"Socket for {post_id} connected at {websocket_address}")
                 # reddit.submission(post_id).reply("Has joined the chat.")
 
         if save_streams:
             utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
 
-        print_time("sockets added:")
+        # remove old sockets
+        for post_id in list(open_websockets.keys()):
+            if post_id not in monitored_streams:
+                # reddit.submission(post_id).reply("Has left the chat.")
+                open_websockets[post_id].close()
+                open_websockets.pop(post_id)
+                logging.debug(f"Socket for {post_id} disconnected.")
 
         # check sockets
-        for open_websocket in open_websockets.values():
+        for post_id, open_websocket in open_websockets.items():
+            logging.debug(f"Checking socket for {post_id}")
             socket_empty = False
             while not socket_empty:
                 try:
                     socket_json = check_socket(open_websocket)
                     socket_data = json.loads(socket_json)
-                    new_messages.append(
-                        {
-                            "message": reddit.comment(socket_data["payload"]["_id36"]),
-                            "body": socket_data["payload"]["body"],
-                            "author": socket_data["payload"]["author"],
-                            "context": "stream",
-                            "submission_id": socket_data["payload"]["link_id"].split("_")[1],
-                        }
-                    )
-                    print_time("socket:")
-                except timeout_decorator.timeout_decorator.TimeoutError:
-                    socket_empty = True
+                    author = socket_data["payload"]["author"]
 
-        print_time("sockets checked:")
-
-        for new_message in new_messages:
-            message = new_message["message"]
-            body = new_message["body"]
-            author = new_message["author"]
-            context = new_message["context"]
-            message_body_lower = body.lower()
-
-            if author == reddit.user.me().name:
-                continue
-
-            elif message_body_lower in basic_commands:
-                this_command = basic_commands[message_body_lower]
-
-                if not "any" in this_command["context"]:
-                    if not context in this_command["context"]:
+                    if author == reddit.user.me().name:
                         continue
 
-                for permission in this_command["permissions"]:
-                    if permission == "any":
-                        break
-                    elif author in users[permission]:
-                        break
-                else:
-                    continue
+                    new_message = {
+                        "message": reddit.comment(socket_data["payload"]["_id36"]),
+                        "body": socket_data["payload"]["body"],
+                        "author": author,
+                        "context": "stream",
+                        "submission_id": socket_data["payload"]["link_id"].split("_")[1],
+                    }
+                    update = None
+                    update = commands.check_message(
+                        script_dir,
+                        basic_commands,
+                        users,
+                        reddit,
+                        monitored_streams,
+                        monitored_posts,
+                        new_message,
+                    )
+                    if update is not None:
+                        check_update(update)
 
-                message.reply(this_command["message"])
+                except timeout_decorator.timeout_decorator.TimeoutError:
+                    logging.debug(f"End of socket messages from {post_id}")
+                    socket_empty = True
 
-            elif message_body_lower == "!reload commands":
-                basic_commands = utils.load_json(script_dir / "basic_commands.json")
-                global advanced_commands
-                advanced_commands = reload(advanced_commands)
-                message.reply("Commands successfully reloaded.")
-
-            else:
-                update = advanced_commands.advanced_commands(
-                    script_dir, users, reddit, monitored_streams, monitored_posts, new_message
-                )
-
-                if update == "users":
-                    users = utils.load_json(script_dir / "users.json")
-                elif update == "monitored_posts":
-                    monitored_posts = utils.load_json(script_dir / "monitored_posts.json")
-                elif update == "monitored_streams":
-                    monitored_streams = utils.load_json(script_dir / "monitored_streams.json")
-
-            print_time("commands:")
-            time.sleep(1)
+        for new_message in new_messages:
+            update = None
+            update = commands.check_message(
+                script_dir,
+                basic_commands,
+                users,
+                reddit,
+                monitored_streams,
+                monitored_posts,
+                new_message,
+            )
+            if update is not None:
+                check_update(update)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        filename="bot.log", format="%(levelname)s:[%(levelname)s] > %(message)s", level=logging.INFO
+    )
+    logging.info("Starting bot")
     while True:
         try:
             main_loop()
         except praw.exceptions.RedditAPIException as e:
             errors = {error.error_type: error.message for error in e.items}
             if "RATELIMIT" in errors:
-                print()
-                print("Error:", errors["RATELIMIT"])
-                print()
+                logging.error(f"Rate Limit hit! Exception message: {errors['RATELIMIT']}")
+                sleep = 0
                 if ("minute" in errors["RATELIMIT"]) or ("minutes" in errors["RATELIMIT"]):
                     sleep = int(errors["RATELIMIT"].split(" ")[-2]) * 60 + 5
-                    print("sleeping for:", sleep, "seconds")
-                    time.sleep(sleep)
                 elif ("second" in errors["RATELIMIT"]) or ("seconds" in errors["RATELIMIT"]):
                     sleep = int(errors["RATELIMIT"].split(" ")[-2])
-                    print("sleeping for:", sleep, "seconds")
-                    time.sleep(sleep)
                 elif ("hour" in errors["RATELIMIT"]) or ("hours" in errors["RATELIMIT"]):
                     sleep = int(int(errors["RATELIMIT"].split(" ")[-2]) * 3600 + 60)
-                    print("sleeping for:", sleep, "seconds")
-                    time.sleep(sleep)
+
+                logging.warning("sleeping for", sleep, "seconds")
+                time.sleep(sleep)
