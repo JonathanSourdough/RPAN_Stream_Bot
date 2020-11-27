@@ -185,8 +185,14 @@ def monitor(
 
     try:
         submission_to_monitor.allow_live_comments
-        if to_monitor not in monitored_streams:
-            monitored_streams[to_monitor] = None
+        if to_monitor not in monitored_streams["monitored"]:
+            if to_monitor in monitored_streams["unmonitored"]:
+                monitored_streams["monitored"][to_monitor] = monitored_streams["unmonitored"][
+                    to_monitor
+                ]
+                monitored_streams["unmonitored"].pop(to_monitor)
+            else:
+                monitored_streams["monitored"][to_monitor] = None
             utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
 
             message.reply(f"{to_monitor} is now being monitored")
@@ -242,8 +248,11 @@ def end(
         return None
 
     if context == "stream":
-        if submission_id in monitored_streams:
-            monitored_streams.pop(submission_id)
+        if submission_id in monitored_streams["monitored"]:
+            monitored_streams["unmonitored"][submission_id] = monitored_streams["monitored"][
+                submission_id
+            ]
+            monitored_streams["monitored"].pop(submission_id)
             utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
 
             message.reply(f"{submission_id} is no longer being monitored")
@@ -265,8 +274,11 @@ def end(
 
         try:
             submission_to_unmonitor.allow_live_comments
-            if to_unmonitor in monitored_streams:
-                monitored_streams.pop(to_unmonitor)
+            if to_unmonitor in monitored_streams["monitored"]:
+                monitored_streams["unmonitored"][to_unmonitor] = monitored_streams["monitored"][
+                    to_unmonitor
+                ]
+                monitored_streams["monitored"].pop(to_unmonitor)
                 utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
 
                 message.reply(f"{to_unmonitor} is no longer being monitored")

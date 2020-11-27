@@ -20,7 +20,11 @@ def check_socket(sock):
 
 
 def main_loop():
-    def check_update(update: str):
+    def check_update(update: str) -> None:
+        if update == None:
+            return
+
+        logger.info(f"Updating {update}")
         if update == "commands":
             basic_commands = utils.load_json(script_dir / "basic_commands.json")
             global commands
@@ -34,13 +38,16 @@ def main_loop():
 
     script_dir = Path(__file__).resolve().parent
 
+    logger.debug(f"Loading secrets/users/commands")
     secrets = utils.load_json(script_dir / "secrets.json")
     users = utils.load_json(script_dir / "users.json")
     basic_commands = utils.load_json(script_dir / "basic_commands.json")
 
+    logger.debug(f"Loading monitored posts/streams")
     monitored_streams = utils.load_json(script_dir / "monitored_streams.json")
     monitored_posts = utils.load_json(script_dir / "monitored_posts.json")
 
+    logger.debug(f"Initializing praw")
     reddit = praw.Reddit(
         username=secrets["user_name"],
         password=secrets["user_password"],
@@ -52,6 +59,7 @@ def main_loop():
     u_jcrayz = reddit.redditor("JCrayZ")
     monitored_subreddits = ["RedditSessions"]
 
+    logger.debug(f"Adding submission/inbox streams")
     open_streams = []
     open_streams.append(
         {
@@ -67,6 +75,7 @@ def main_loop():
     )
     open_websockets = {}
 
+    logger.info(f"Starting bot loop")
     while True:
         new_messages = []
         for open_stream in open_streams:
@@ -80,7 +89,7 @@ def main_loop():
                         continue
 
                     if submission.allow_live_comments:
-                        monitored_streams[submission.id] = None
+                        monitored_streams["monitored"][submission.id] = None
 
                         utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
                         logger.info(
@@ -145,7 +154,7 @@ def main_loop():
 
         # add new sockets
         save_streams = False
-        for post_id, websocket_address in monitored_streams.items():
+        for post_id, websocket_address in monitored_streams["monitored"].items():
             if post_id not in open_websockets:
                 logger.debug(f"Attempting to connect new socket for {post_id}")
                 submission = reddit.submission(post_id)
@@ -155,6 +164,7 @@ def main_loop():
                         headers={
                             "user-agent": secrets["user_agent"],
                             "authorization": f"Bearer {reddit._authorized_core._authorizer.access_token}",
+                            "Sec-Fetch-Mode": "no-cors",
                         },
                     )
                     if not response.ok:
@@ -162,8 +172,8 @@ def main_loop():
                         continue
 
                     websocket_address = response.json()["data"]["post"]["liveCommentsWebsocket"]
-                    if monitored_streams[post_id] != websocket_address:
-                        monitored_streams[post_id] = websocket_address
+                    if monitored_streams["monitored"][post_id] != websocket_address:
+                        monitored_streams["monitored"][post_id] = websocket_address
                         save_streams = True
 
                 open_websockets[post_id] = websocket.create_connection(websocket_address)
@@ -175,7 +185,9 @@ def main_loop():
 
         # remove old sockets
         for post_id in list(open_websockets.keys()):
-            if post_id not in monitored_streams:
+            if (post_id not in monitored_streams["monitored"]) or (
+                post_id in monitored_streams["unmonitored"]
+            ):
                 # reddit.submission(post_id).reply("Has left the chat.")
                 open_websockets[post_id].close()
                 open_websockets.pop(post_id)
@@ -259,7 +271,7 @@ if __name__ == "__main__":
     consolehandler.setFormatter(formatter)
     logger.addHandler(consolehandler)
 
-    logger.info("Starting bot")
+    logger.info("Initializing bot")
     while True:
         try:
             main_loop()

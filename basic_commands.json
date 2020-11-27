@@ -10,6 +10,17 @@
         ],
         "message": "https://www.youtube.com/channel/UCl3Sq_kJinSjW41-yylQEIA"
     },
+    "!discord": {
+        "permissions": [
+            "any"
+        ],
+        "context": [
+            "inbox",
+            "stream",
+            "post"
+        ],
+        "message": "https://www.discord.gg/Nh7VGxTzFd"
+    },
     "!subreddit": {
         "permissions": [
             "any"
@@ -53,7 +64,7 @@
             "stream",
             "post"
         ],
-        "message": "Subreddit:  \nr/JCrayZ\n\nReddit User:  \nu/JCrayZ\n\nYouTube:  \nhttps://www.youtube.com/channel/UCl3Sq_kJinSjW41-yylQEIA\n\nPaypal:  \nhttps://www.paypal.com/paypalme/JCrayZ5"
+        "message": "Subreddit:  \nr/JCrayZ\n\nReddit User:  \nu/JCrayZ\n\nYouTube:  \nhttps://www.youtube.com/channel/UCl3Sq_kJinSjW41-yylQEIA\n\nDiscord:  \nhttps://www.discord.gg/Nh7VGxTzFd\n\nPaypal:  \nhttps://www.paypal.com/paypalme/JCrayZ5"
     },
     "!originals": {
         "permissions": [
