@@ -30,7 +30,7 @@ def subscribe(script_dir: Path, users: Dict, new_message: Dict) -> Optional[str]
 
     if not permissions_needed.intersection(user_permissions):
         logger.info(
-            f"!subscribe used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
+            f"!subscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
         )
         return None
 
@@ -39,13 +39,13 @@ def subscribe(script_dir: Path, users: Dict, new_message: Dict) -> Optional[str]
         utils.save_json((script_dir / "users.json"), users)
         message.reply(f"u/{author} has been subscribed. Use !unsubscribe to unsubscribe")
         logger.info(
-            f"!subscribe used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | u/{author} now subscribed."
+            f"!subscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{author} now subscribed."
         )
         return "users"
     else:
         message.reply(f"u/{author} was already subscribed.")
         logger.info(
-            f"!subscribe used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | u/{author} was already subscribed."
+            f"!subscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{author} was already subscribed."
         )
         return None
 
@@ -63,12 +63,12 @@ def unsubscribe(script_dir: Path, users: Dict, new_message: Dict) -> Optional[st
         message.reply(f"u/{author} has been unsubscribed.")
         return "users"
         logger.info(
-            f"!unsubscribe used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | u/{author} has been unsubscribed."
+            f"!unsubscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{author} has been unsubscribed."
         )
     else:
         message.reply(f"u/{author} was not subscribed.")
         logger.info(
-            f"!unsubscribe used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | u/{author} was not subscribed."
+            f"!unsubscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{author} was not subscribed."
         )
         return None
 
@@ -91,7 +91,7 @@ def subother(
 
     if not permissions_needed.intersection(user_permissions):
         logger.info(
-            f"!subother {to_subscribe} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
+            f"!subother {to_subscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
         )
         return None
 
@@ -102,19 +102,19 @@ def subother(
             utils.save_json((script_dir / "users.json"), users)
             message.reply(f"u/{to_subscribe} has been subscribed. Use !unsubscribe to unsubscribe")
             logger.info(
-                f"!subother {to_subscribe} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | u/{to_subscribe} has been subscribed."
+                f"!subother {to_subscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_subscribe} has been subscribed."
             )
             return "users"
         else:
             message.reply(f"u/{to_subscribe} was already subscribed.")
             logger.info(
-                f"!subother {to_subscribe} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | u/{to_subscribe} was already subscribed."
+                f"!subother {to_subscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_subscribe} was already subscribed."
             )
             return None
     except NotFound:
         message.reply(f"u/{to_subscribe} not found.")
         logger.info(
-            f"!subother {to_subscribe} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | u/{to_subscribe} not found."
+            f"!subother {to_subscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_subscribe} not found."
         )
         return None
 
@@ -136,7 +136,7 @@ def unsubother(script_dir: Path, users: Dict, new_message: Dict) -> Optional[str
 
     if not permissions_needed.intersection(user_permissions):
         logger.info(
-            f"!unsubother {to_unsubscribe} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
+            f"!unsubother {to_unsubscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
         )
         return None
 
@@ -145,13 +145,13 @@ def unsubother(script_dir: Path, users: Dict, new_message: Dict) -> Optional[str
         utils.save_json((script_dir / "users.json"), users)
         message.reply(f"u/{to_unsubscribe} has been unsubscribed.")
         logger.info(
-            f"!unsubother {to_unsubscribe} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | u/{to_unsubscribe} has been unsubscribed."
+            f"!unsubother {to_unsubscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_unsubscribe} has been unsubscribed."
         )
         return "users"
     else:
         message.reply(f"u/{to_unsubscribe} was not previously subscribed.")
         logger.info(
-            f"!unsubother {to_unsubscribe} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | u/{to_unsubscribe} was not subscribed."
+            f"!unsubother {to_unsubscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_unsubscribe} was not subscribed."
         )
         return None
 
@@ -177,7 +177,7 @@ def monitor(
 
     if not permissions_needed.intersection(user_permissions):
         logger.info(
-            f"!monitor {to_monitor} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
+            f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
         )
         return None
 
@@ -197,13 +197,13 @@ def monitor(
 
             message.reply(f"{to_monitor} is now being monitored")
             logger.info(
-                f"!monitor {to_monitor} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Stream {to_monitor} is now being monitored."
+                f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream {to_monitor} is now being monitored."
             )
             return "monitored_streams"
         else:
             message.reply(f"{to_monitor} already being monitored")
             logger.info(
-                f"!monitor {to_monitor} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Stream {to_monitor} was already being monitored."
+                f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream {to_monitor} was already being monitored."
             )
             return None
     except AttributeError:
@@ -213,13 +213,13 @@ def monitor(
 
             message.reply(f"{to_monitor} is now being monitored")
             logger.info(
-                f"!monitor {to_monitor} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Post {to_monitor} is now being monitored."
+                f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Post {to_monitor} is now being monitored."
             )
             return "monitored_posts"
         else:
             message.reply(f"{to_monitor} already being monitored")
             logger.info(
-                f"!monitor {to_monitor} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Post {to_monitor} was already being monitored."
+                f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Post {to_monitor} was already being monitored."
             )
             return None
 
@@ -243,7 +243,7 @@ def end(
 
     if not permissions_needed.intersection(user_permissions):
         logger.info(
-            f"!end used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
+            f"!end used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
         )
         return None
 
@@ -257,13 +257,13 @@ def end(
 
             message.reply(f"{submission_id} is no longer being monitored")
             logger.info(
-                f"!end used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Stream has been unmonitored."
+                f"!end used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream has been unmonitored."
             )
             return "monitored_streams"
         else:
             message.reply(f"{submission_id} was not being monitored")
             logger.info(
-                f"!monitor used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Stream was not monitored."
+                f"!monitor used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream was not monitored."
             )
             return None
 
@@ -283,13 +283,13 @@ def end(
 
                 message.reply(f"{to_unmonitor} is no longer being monitored")
                 logger.info(
-                    f"!end {to_unmonitor} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Stream {to_unmonitor} has been unmonitored."
+                    f"!end {to_unmonitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream {to_unmonitor} has been unmonitored."
                 )
                 return "monitored_streams"
             else:
                 message.reply(f"{to_unmonitor} was not being monitored")
                 logger.info(
-                    f"!end {to_unmonitor} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Stream {to_unmonitor} was not monitored."
+                    f"!end {to_unmonitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream {to_unmonitor} was not monitored."
                 )
                 return None
         except AttributeError:
@@ -298,13 +298,13 @@ def end(
                 utils.save_json(script_dir / "monitored_posts.json", monitored_posts)
                 message.reply(f"{to_unmonitor} is no longer being monitored")
                 logger.info(
-                    f"!end {to_unmonitor} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Post {to_unmonitor} has been unmonitored."
+                    f"!end {to_unmonitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Post {to_unmonitor} has been unmonitored."
                 )
                 return "monitored_posts"
             else:
                 message.reply(f"{to_unmonitor} was not being monitored")
                 logger.info(
-                    f"!end {to_unmonitor} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Post {to_unmonitor} was not monitored."
+                    f"!end {to_unmonitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Post {to_unmonitor} was not monitored."
                 )
                 return None
 
@@ -323,14 +323,14 @@ def reload_commands(users: Dict, new_message: Dict):
 
     if not permissions_needed.intersection(user_permissions):
         logger.info(
-            f"!reload_commands used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
+            f"!reload_commands used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
         )
         return None
 
     new_message["message"].reply("Commands queued to reload.")
 
     logger.info(
-        f"!reload commands used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Queuing reload commands."
+        f"!reload commands used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Queuing reload commands."
     )
     return "commands"
 
@@ -346,7 +346,7 @@ def basic_commands_func(user_dict: Dict, this_command: Dict, new_message: Dict):
     if not "any" in contexts_needed:
         if not context in contexts_needed:
             logger.info(
-                f"{body.lower()} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Disallowed Context | Has: {context} Needs one of: {contexts_needed}"
+                f"{body.lower()} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Disallowed Context | Has: {context} Needs one of: {contexts_needed}"
             )
             return
 
@@ -355,14 +355,14 @@ def basic_commands_func(user_dict: Dict, this_command: Dict, new_message: Dict):
         user_permissions = get_permissions(user_dict, author)
         if not permissions_needed.intersection(user_permissions):
             logger.info(
-                f"{body.lower()} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
+                f"{body.lower()} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
             )
             return
 
     reply_message = this_command["message"]
     message.reply(reply_message)
     logger.info(
-        f"{body.lower()} used by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Replied: {reply_message}"
+        f"{body.lower()} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Replied: {reply_message}"
     )
 
 
@@ -385,7 +385,7 @@ def check_message(
     message_length = len(message_body_lower)
     if message_length > 45:
         logger.debug(
-            f"Long message ({message_length} characters) sent by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | Ignored due to message length."
+            f"Long message ({message_length} characters) sent by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Ignored due to message length."
         )
         return None
 
@@ -416,6 +416,6 @@ def check_message(
         return reload_commands(users, new_message)
 
     logger.debug(
-        f"{body} sent by u/{author} in {context}{' at' + submission_id if submission_id is not None else ''} | No command found."
+        f"{body} sent by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | No command found."
     )
     return None

@@ -7,16 +7,39 @@ import json
 
 import praw
 import websocket
-import timeout_decorator
 import requests
 
 import utils
 import commands
 
 
-@timeout_decorator.timeout(0.1)
-def check_socket(sock):
-    return sock.recv()
+def get_websocket_address(
+    script_dir: Path, secrets: Dict, monitored_streams: Dict, reddit: praw.Reddit, post_id: str
+) -> bool:
+    logger.debug(f"Attempting to retrieving new socket address for {post_id}")
+    submission = reddit.submission(post_id)
+    response = requests.get(
+        f"https://strapi.reddit.com/videos/{submission.fullname}",
+        headers={
+            "user-agent": secrets["user_agent"],
+            "authorization": f"Bearer {reddit._authorized_core._authorizer.access_token}",
+            "Sec-Fetch-Mode": "no-cors",
+        },
+    )
+    if not response.ok:
+        logger.warning(f"Failed retrieving new socket address. for {post_id}")
+        return False
+    websocket_address = response.json()["data"]["post"]["liveCommentsWebsocket"]
+    if monitored_streams["monitored"][post_id] != websocket_address:
+        monitored_streams["monitored"][post_id] = websocket_address
+        utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
+        logger.debug(f"Retrieved new socket address for {post_id}: {websocket_address}")
+        return True
+
+    logger.debug(
+        f"Retrieved new socket address for {post_id}: {websocket_address} but is the same as saved."
+    )
+    return False
 
 
 def main_loop():
@@ -156,29 +179,79 @@ def main_loop():
         save_streams = False
         for post_id, websocket_address in monitored_streams["monitored"].items():
             if post_id not in open_websockets:
-                logger.debug(f"Attempting to connect new socket for {post_id}")
-                submission = reddit.submission(post_id)
                 if websocket_address is None:
-                    response = requests.get(
-                        f"https://strapi.reddit.com/videos/{submission.fullname}",
-                        headers={
-                            "user-agent": secrets["user_agent"],
-                            "authorization": f"Bearer {reddit._authorized_core._authorizer.access_token}",
-                            "Sec-Fetch-Mode": "no-cors",
-                        },
-                    )
-                    if not response.ok:
-                        logger.warning(f"Failed connecting new socket for {post_id}")
+                    if get_websocket_address(
+                        script_dir, secrets, monitored_streams, reddit, post_id
+                    ):
+                        monitored_streams = utils.load_json(script_dir / "monitored_streams.json")
+                    else:
                         continue
-
-                    websocket_address = response.json()["data"]["post"]["liveCommentsWebsocket"]
-                    if monitored_streams["monitored"][post_id] != websocket_address:
-                        monitored_streams["monitored"][post_id] = websocket_address
-                        save_streams = True
-
-                open_websockets[post_id] = websocket.create_connection(websocket_address)
-                logger.info(f"Socket for {post_id} connected at {websocket_address}")
-                # reddit.submission(post_id).reply("Has joined the chat.")
+            else:
+                if open_websockets[post_id]["socket"] is None:
+                    if (
+                        open_websockets[post_id]["last_tried"]
+                        + open_websockets[post_id]["timeout_length"]
+                        < time.time()
+                    ):
+                        if get_websocket_address(
+                            script_dir, secrets, monitored_streams, reddit, post_id
+                        ):
+                            monitored_streams = utils.load_json(
+                                script_dir / "monitored_streams.json"
+                            )
+                        else:
+                            open_websockets[post_id]["last_tried"] = time.time()
+                            open_websockets[post_id]["timeout_length"] *= 2
+                            logger.warning(
+                                f"Socket for {post_id} at {monitored_streams['monitored'][post_id]} could not connect, error 403. Increasing timeout to {open_websockets[post_id]['timeout_length']}"
+                            )
+                            continue
+                    else:
+                        continue
+            try:
+                if post_id not in open_websockets:
+                    open_websockets[post_id] = {
+                        "socket": None,
+                        "timeout_length": 0,
+                        "last_tried": time.time(),
+                    }
+                elif open_websockets[post_id]["socket"] is not None:
+                    continue
+                open_websockets[post_id]["socket"] = websocket.create_connection(
+                    monitored_streams["monitored"][post_id]
+                )
+                logger.info(
+                    f"Socket for {post_id} connected at {monitored_streams['monitored'][post_id]}"
+                )
+            except websocket.WebSocketBadStatusException as bad_status:
+                if post_id not in open_websockets:
+                    open_websockets[post_id] = {
+                        "socket": None,
+                        "timeout_length": 0,
+                        "last_tried": time.time(),
+                    }
+                status_code = bad_status.status_code
+                if status_code == "403":
+                    open_websockets[post_id]["socket"] = None
+                    if open_websockets[post_id]["timeout_length"] == 0:
+                        open_websockets[post_id]["timeout_length"] = 30
+                    else:
+                        open_websockets[post_id]["timeout_length"] *= 2
+                    open_websockets[post_id]["last_tried"] = time.time()
+                    logger.warning(
+                        f"Socket for {post_id} at {monitored_streams['monitored'][post_id]} could not connect, error 403. Increasing timeout to {open_websockets[post_id]['timeout_length']}"
+                    )
+                else:
+                    open_websockets[post_id]["socket"] = None
+                    if open_websockets[post_id]["timeout_length"] == 0:
+                        open_websockets[post_id]["timeout_length"] = 30
+                    else:
+                        open_websockets[post_id]["timeout_length"] *= 2
+                    open_websockets[post_id]["last_tried"] = time.time()
+                    logger.warning(
+                        f"Socket for {post_id} at {monitored_streams['monitored'][post_id]} could not connect, error {status_code}. Increasing timeout to {open_websockets[post_id]['timeout_length']}"
+                    )
+            # reddit.submission(post_id).reply("Has joined the chat.")
 
         if save_streams:
             utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
@@ -189,17 +262,20 @@ def main_loop():
                 post_id in monitored_streams["unmonitored"]
             ):
                 # reddit.submission(post_id).reply("Has left the chat.")
-                open_websockets[post_id].close()
+                open_websockets[post_id]["socket"].close()
                 open_websockets.pop(post_id)
                 logger.info(f"Socket for {post_id} disconnected.")
 
         # check sockets
         for post_id, open_websocket in open_websockets.items():
+            if open_websocket["socket"] is None:
+                continue
+
             logger.debug(f"Checking socket for {post_id}")
             socket_empty = False
             while not socket_empty:
                 try:
-                    socket_json = check_socket(open_websocket)
+                    socket_json = open_websocket["socket"].recv()
                     socket_data = json.loads(socket_json)
                     if not socket_data["type"] == "new_comment":
                         continue
@@ -229,8 +305,11 @@ def main_loop():
                     if update is not None:
                         check_update(update)
 
-                except timeout_decorator.timeout_decorator.TimeoutError:
+                except websocket.WebSocketTimeoutException:
                     logger.debug(f"End of socket messages from {post_id}")
+                    socket_empty = True
+                except Exception as e:
+                    logger.error(f"Socket for post {post_id} excepted {e}")
                     socket_empty = True
 
         for new_message in new_messages:
