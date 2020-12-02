@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List, Set
+from typing import Optional, Dict, List, Set, Tuple
 from pathlib import Path
 import logging
 
@@ -10,412 +10,382 @@ import utils
 logger = logging.getLogger("bot.commands")
 
 
-def get_permissions(users_dict: Dict, user: str) -> Set[str]:
-    user_permissions = set()
-    for permission, user_names in users_dict.items():
-        if user in user_names:
-            user_permissions.add(permission)
-    return user_permissions
+class Commands:
+    def __init__(self, parent):
+        self.parent = parent
 
-
-def subscribe(script_dir: Path, users: Dict, new_message: Dict) -> Optional[str]:
-    message = new_message["message"]
-    body = new_message["body"]
-    context = new_message["context"]
-    author = new_message["author"]
-    submission_id = new_message["submission_id"]
-
-    permissions_needed = {"admins", "moderators"}
-    user_permissions = get_permissions(users, author)
-
-    if not permissions_needed.intersection(user_permissions):
-        logger.info(
-            f"!subscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
+    def log(
+        self,
+        command: str,
+        author: str,
+        context: str,
+        submission_id: Optional[str],
+        notices: Optional[List] = None,
+        reply: Optional[str] = None,
+        log_level: int = logging.INFO,
+    ):
+        _submission = " at " + submission_id if submission_id is not None else ""
+        _notices = " | " + " | ".join(notices) if notices is not None else ""
+        _reply = " | " + reply if reply is not None else ""
+        logger.log(
+            log_level, f"{command} sent by u/{author} in {context}{_submission}{_notices}{_reply}"
         )
-        return None
 
-    if author not in users["subscribers"]:
-        users["subscribers"].append(author)
-        utils.save_json((script_dir / "users.json"), users)
-        message.reply(f"u/{author} has been subscribed. Use !unsubscribe to unsubscribe")
-        logger.info(
-            f"!subscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{author} now subscribed."
-        )
-        return "users"
-    else:
-        message.reply(f"u/{author} was already subscribed.")
-        logger.info(
-            f"!subscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{author} was already subscribed."
-        )
-        return None
+    def check_permissions(
+        self,
+        access: Set,
+        command: str,
+        author: str,
+        context: str,
+        submission_id: Optional[str],
+        log: bool = True,
+    ) -> Set[str]:
 
+        user_permissions = set()
+        for permission, user_names in self.parent.users.items():
+            if author in user_names:
+                user_permissions.add(permission)
 
-def unsubscribe(script_dir: Path, users: Dict, new_message: Dict) -> Optional[str]:
-    message = new_message["message"]
-    body = new_message["body"]
-    context = new_message["context"]
-    author = new_message["author"]
-    submission_id = new_message["submission_id"]
+        if not "any" in access:
+            if not access.intersection(user_permissions):
+                if log:
+                    notices = [
+                        "Insufficent Permission",
+                        f"Has: {user_permissions} Needs one of: {access}",
+                    ]
+                    self.log(command, author, context, submission_id, notices=notices)
+                return user_permissions
 
-    if author in users["subscribers"]:
-        users["subscribers"].remove(author)
-        utils.save_json((script_dir / "users.json"), users)
-        message.reply(f"u/{author} has been unsubscribed.")
-        return "users"
-        logger.info(
-            f"!unsubscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{author} has been unsubscribed."
-        )
-    else:
-        message.reply(f"u/{author} was not subscribed.")
-        logger.info(
-            f"!unsubscribe used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{author} was not subscribed."
-        )
-        return None
+        return user_permissions
 
+    def subscribe(self, new_message: Dict) -> Tuple[Optional[str], Optional[str]]:
+        message = new_message["message"]
+        body = new_message["body"]
+        context = new_message["context"]
+        author = new_message["author"]
+        submission_id = new_message["submission_id"]
 
-def subother(
-    script_dir: Path, users: Dict, reddit: praw.Reddit, new_message: Dict
-) -> Optional[str]:
-    message = new_message["message"]
-    body = new_message["body"]
-    context = new_message["context"]
-    author = new_message["author"]
-    submission_id = new_message["submission_id"]
+        command = "!subscribe"
 
-    permissions_needed = {"admins", "moderators"}
-    user_permissions = get_permissions(users, author)
+        access = {"admins", "moderators"}
+        if not self.check_permissions(access, command, author, context, submission_id):
+            return None, None
 
-    to_subscribe = body.split(" ")[1]
-    if to_subscribe.startswith("u/"):
-        to_subscribe = to_subscribe[len("u/") :]
+        if author not in self.parent.users["subscribers"]:
+            self.parent.users["subscribers"].append(author)
 
-    if not permissions_needed.intersection(user_permissions):
-        logger.info(
-            f"!subother {to_subscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
-        )
-        return None
-
-    try:
-        reddit.redditor(to_subscribe).id
-        if to_subscribe not in users["subscribers"]:
-            users["subscribers"].append(to_subscribe)
-            utils.save_json((script_dir / "users.json"), users)
-            message.reply(f"u/{to_subscribe} has been subscribed. Use !unsubscribe to unsubscribe")
-            logger.info(
-                f"!subother {to_subscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_subscribe} has been subscribed."
-            )
-            return "users"
+            reply = f"u/{author} has been subscribed. Use !unsubscribe to unsubscribe."
+            message.reply(reply)
+            self.log(command, author, context, submission_id, reply=reply)
+            return "users", "save"
         else:
-            message.reply(f"u/{to_subscribe} was already subscribed.")
-            logger.info(
-                f"!subother {to_subscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_subscribe} was already subscribed."
-            )
-            return None
-    except NotFound:
-        message.reply(f"u/{to_subscribe} not found.")
-        logger.info(
-            f"!subother {to_subscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_subscribe} not found."
-        )
-        return None
+            reply = f"u/{author} was already subscribed."
+            message.reply(reply)
+            self.log(command, author, context, submission_id, reply=reply)
+            return None, None
 
+    def unsubscribe(self, new_message: Dict) -> Tuple[Optional[str], Optional[str]]:
+        message = new_message["message"]
+        body = new_message["body"]
+        context = new_message["context"]
+        author = new_message["author"]
+        submission_id = new_message["submission_id"]
 
-def unsubother(script_dir: Path, users: Dict, new_message: Dict) -> Optional[str]:
-    message = new_message["message"]
-    body = new_message["body"]
-    context = new_message["context"]
-    author = new_message["author"]
-    submission_id = new_message["submission_id"]
+        command = "!unsubscribe"
 
-    permissions_needed = {"admins", "moderators"}
-    user_permissions = get_permissions(users, author)
+        if author in self.parent.users["subscribers"]:
+            self.parent.users["subscribers"].remove(author)
 
-    to_unsubscribe = body.split(" ")[1]
-
-    if to_unsubscribe.startswith("u/"):
-        to_unsubscribe = to_unsubscribe[len("u/") :]
-
-    if not permissions_needed.intersection(user_permissions):
-        logger.info(
-            f"!unsubother {to_unsubscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
-        )
-        return None
-
-    if to_unsubscribe in users["subscribers"]:
-        users["subscribers"].remove(to_unsubscribe)
-        utils.save_json((script_dir / "users.json"), users)
-        message.reply(f"u/{to_unsubscribe} has been unsubscribed.")
-        logger.info(
-            f"!unsubother {to_unsubscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_unsubscribe} has been unsubscribed."
-        )
-        return "users"
-    else:
-        message.reply(f"u/{to_unsubscribe} was not previously subscribed.")
-        logger.info(
-            f"!unsubother {to_unsubscribe} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | u/{to_unsubscribe} was not subscribed."
-        )
-        return None
-
-
-def monitor(
-    script_dir: Path,
-    users: Dict,
-    reddit: praw.Reddit,
-    monitored_streams: Dict,
-    monitored_posts: Dict,
-    new_message: Dict,
-) -> Optional[str]:
-    message = new_message["message"]
-    body = new_message["body"]
-    context = new_message["context"]
-    author = new_message["author"]
-    submission_id = new_message["submission_id"]
-
-    permissions_needed = {"admins", "moderators"}
-    user_permissions = get_permissions(users, author)
-
-    to_monitor = body.split(" ")[1]
-
-    if not permissions_needed.intersection(user_permissions):
-        logger.info(
-            f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
-        )
-        return None
-
-    submission_to_monitor = reddit.submission(to_monitor)
-
-    try:
-        submission_to_monitor.allow_live_comments
-        if to_monitor not in monitored_streams["monitored"]:
-            if to_monitor in monitored_streams["unmonitored"]:
-                monitored_streams["monitored"][to_monitor] = monitored_streams["unmonitored"][
-                    to_monitor
-                ]
-                monitored_streams["unmonitored"].pop(to_monitor)
-            else:
-                monitored_streams["monitored"][to_monitor] = None
-            utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
-
-            message.reply(f"{to_monitor} is now being monitored")
-            logger.info(
-                f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream {to_monitor} is now being monitored."
-            )
-            return "monitored_streams"
+            reply = f"u/{author} has been unsubscribed."
+            message.reply(reply)
+            self.log(command, author, context, submission_id, reply=reply)
+            return "users", "save"
         else:
-            message.reply(f"{to_monitor} already being monitored")
-            logger.info(
-                f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream {to_monitor} was already being monitored."
-            )
-            return None
-    except AttributeError:
-        if to_monitor not in monitored_posts:
-            monitored_posts[to_monitor] = len(submission_to_monitor.comments.list())
-            utils.save_json(script_dir / "monitored_posts.json", monitored_posts)
+            message.reply(reply)
+            self.log(command, author, context, submission_id, reply=reply)
+            return None, None
 
-            message.reply(f"{to_monitor} is now being monitored")
-            logger.info(
-                f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Post {to_monitor} is now being monitored."
-            )
-            return "monitored_posts"
-        else:
-            message.reply(f"{to_monitor} already being monitored")
-            logger.info(
-                f"!monitor {to_monitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Post {to_monitor} was already being monitored."
-            )
-            return None
+    def subother(self, new_message: Dict) -> Tuple[Optional[str], Optional[str]]:
+        message = new_message["message"]
+        body = new_message["body"]
+        context = new_message["context"]
+        author = new_message["author"]
+        submission_id = new_message["submission_id"]
 
+        to_subscribe = body.split(" ")[1]
+        if to_subscribe.startswith("u/"):
+            to_subscribe = to_subscribe[len("u/") :]
 
-def end(
-    script_dir: Path,
-    users: Dict,
-    reddit: praw.Reddit,
-    monitored_streams: Dict,
-    monitored_posts: Dict,
-    new_message: Dict,
-) -> Optional[str]:
-    message = new_message["message"]
-    body = new_message["body"]
-    context = new_message["context"]
-    author = new_message["author"]
-    submission_id = new_message["submission_id"]
+        command = f"!subother {to_subscribe}"
 
-    permissions_needed = {"admins", "moderators"}
-    user_permissions = get_permissions(users, author)
-
-    if not permissions_needed.intersection(user_permissions):
-        logger.info(
-            f"!end used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
-        )
-        return None
-
-    if context == "stream":
-        if submission_id in monitored_streams["monitored"]:
-            monitored_streams["unmonitored"][submission_id] = monitored_streams["monitored"][
-                submission_id
-            ]
-            monitored_streams["monitored"].pop(submission_id)
-            utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
-
-            message.reply(f"{submission_id} is no longer being monitored")
-            logger.info(
-                f"!end used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream has been unmonitored."
-            )
-            return "monitored_streams"
-        else:
-            message.reply(f"{submission_id} was not being monitored")
-            logger.info(
-                f"!monitor used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream was not monitored."
-            )
-            return None
-
-    elif context == "inbox":
-        to_unmonitor = body.split(" ")[1]
-
-        submission_to_unmonitor = reddit.submission(to_unmonitor)
+        access = {"admins", "moderators"}
+        if not self.check_permissions(access, command, author, context, submission_id):
+            return None, None
 
         try:
-            submission_to_unmonitor.allow_live_comments
-            if to_unmonitor in monitored_streams["monitored"]:
-                monitored_streams["unmonitored"][to_unmonitor] = monitored_streams["monitored"][
-                    to_unmonitor
-                ]
-                monitored_streams["monitored"].pop(to_unmonitor)
-                utils.save_json(script_dir / "monitored_streams.json", monitored_streams)
+            self.parent.reddit.redditor(to_subscribe).id
+            if to_subscribe not in self.parent.users["subscribers"]:
+                self.parent.users["subscribers"].append(to_subscribe)
 
-                message.reply(f"{to_unmonitor} is no longer being monitored")
-                logger.info(
-                    f"!end {to_unmonitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream {to_unmonitor} has been unmonitored."
-                )
-                return "monitored_streams"
+                reply = f"u/{to_subscribe} has been subscribed. Use !unsubscribe to unsubscribe."
+                message.reply(reply)
+                self.log(command, author, context, submission_id, reply=reply)
+                return "users", "save"
             else:
-                message.reply(f"{to_unmonitor} was not being monitored")
-                logger.info(
-                    f"!end {to_unmonitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Stream {to_unmonitor} was not monitored."
-                )
-                return None
+                reply = f"u/{to_subscribe} was already subscribed."
+                message.reply(f"u/{to_subscribe} was already subscribed.")
+                self.log(command, author, context, submission_id, reply=reply)
+                return None, None
+        except NotFound:
+            reply = f"u/{to_subscribe} not found."
+            message.reply(reply)
+            self.log(command, author, context, submission_id, reply=reply)
+            return None, None
+
+    def unsubother(self, new_message: Dict) -> Tuple[Optional[str], Optional[str]]:
+        message = new_message["message"]
+        body = new_message["body"]
+        context = new_message["context"]
+        author = new_message["author"]
+        submission_id = new_message["submission_id"]
+
+        to_unsubscribe = body.split(" ")[1]
+        if to_unsubscribe.startswith("u/"):
+            to_unsubscribe = to_unsubscribe[len("u/") :]
+
+        command = f"!unsubother {to_unsubscribe}"
+
+        access = {"admins", "moderators"}
+        if not self.check_permissions(access, command, author, context, submission_id):
+            return None, None
+
+        if to_unsubscribe in self.parent.users["subscribers"]:
+            self.parent.users["subscribers"].remove(to_unsubscribe)
+
+            reply = f"u/{to_unsubscribe} has been unsubscribed."
+            message.reply(reply)
+            self.log(command, author, context, submission_id, reply=reply)
+            return "users", "save"
+        else:
+            reply = f"u/{to_unsubscribe} was not previously subscribed."
+            message.reply(reply)
+            self.log(command, author, context, submission_id, reply=reply)
+            return None, None
+
+    def monitor(self, new_message: Dict) -> Tuple[Optional[str], Optional[str]]:
+        message = new_message["message"]
+        body = new_message["body"]
+        context = new_message["context"]
+        author = new_message["author"]
+        submission_id = new_message["submission_id"]
+
+        to_monitor = body.split(" ")[1]
+
+        command = f"!monitor {to_monitor}"
+
+        access = {"admins", "moderators"}
+        if not self.check_permissions(access, command, author, context, submission_id):
+            return None, None
+
+        submission = self.parent.reddit.submission(to_monitor)
+
+        try:
+            submission.allow_live_comments
+            if to_monitor not in self.parent.monitored_streams["monitored"]:
+                if to_monitor in self.parent.monitored_streams["unmonitored"]:
+                    self.parent.monitored_streams["monitored"][
+                        to_monitor
+                    ] = self.parent.monitored_streams["unmonitored"][to_monitor]
+                    self.parent.monitored_streams["unmonitored"].pop(to_monitor)
+                else:
+                    self.parent.monitored_streams["monitored"][to_monitor] = None
+
+                reply = f"Stream {to_monitor} is now being monitored."
+                message.reply(reply)
+                self.log(command, author, context, submission_id, reply=reply)
+                return "monitored_streams", "save"
+            else:
+                reply = f"Stream {to_monitor} already being monitored."
+                message.reply(reply)
+                self.log(command, author, context, submission_id, reply=reply)
+                return None, None
+
         except AttributeError:
-            if to_unmonitor in monitored_posts:
-                monitored_posts.pop(to_unmonitor)
-                utils.save_json(script_dir / "monitored_posts.json", monitored_posts)
-                message.reply(f"{to_unmonitor} is no longer being monitored")
-                logger.info(
-                    f"!end {to_unmonitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Post {to_unmonitor} has been unmonitored."
-                )
-                return "monitored_posts"
+            if to_monitor not in self.parent.monitored_posts:
+                self.parent.monitored_posts[to_monitor] = len(submission.comments.list())
+
+                reply = f"Post {to_monitor} is now being monitored."
+                message.reply(reply)
+                self.log(command, author, context, submission_id, reply=reply)
+                return "monitored_posts", "save"
             else:
-                message.reply(f"{to_unmonitor} was not being monitored")
-                logger.info(
-                    f"!end {to_unmonitor} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Post {to_unmonitor} was not monitored."
-                )
-                return None
+                reply = f"Post {to_monitor} already being monitored."
+                message.reply(reply)
+                self.log(command, author, context, submission_id, reply=reply)
+                return None, None
 
-    else:
-        return None
+    def end(self, new_message: Dict) -> Tuple[Optional[str], Optional[str]]:
+        message = new_message["message"]
+        body = new_message["body"]
+        context = new_message["context"]
+        author = new_message["author"]
+        submission_id = new_message["submission_id"]
 
+        access = {"admins", "moderators"}
 
-def reload_commands(users: Dict, new_message: Dict):
-    context = new_message["context"]
-    body = new_message["body"]
-    author = new_message["author"]
-    submission_id = new_message["submission_id"]
+        if context in ["stream", "post"]:
+            command = "!end"
 
-    permissions_needed = {"admins"}
-    user_permissions = get_permissions(users, author)
+            if not self.check_permissions(access, command, author, context, submission_id):
+                return None, None
 
-    if not permissions_needed.intersection(user_permissions):
-        logger.info(
-            f"!reload_commands used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
-        )
-        return None
+            if submission_id in self.parent.monitored_streams["monitored"]:
+                self.parent.monitored_streams["unmonitored"][
+                    submission_id
+                ] = self.parent.monitored_streams["monitored"][submission_id]
+                self.parent.monitored_streams["monitored"].pop(submission_id)
 
-    new_message["message"].reply("Commands queued to reload.")
+                reply = f"{context.title()} {submission_id} is no longer being monitored."
+                message.reply(reply)
+                self.log(command, author, context, submission_id, reply=reply)
+                return "monitored_streams", "save"
+            else:
+                reply = f"{context.title()} {submission_id} was not being monitored."
+                message.reply(reply)
+                self.log(command, author, context, submission_id, reply=reply)
+                return None, None
 
-    logger.info(
-        f"!reload commands used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Queuing reload commands."
-    )
-    return "commands"
+        elif context == "inbox":
+            to_unmonitor = body.split(" ")[1]
 
+            command = f"!end {to_unmonitor}"
 
-def basic_commands_func(user_dict: Dict, this_command: Dict, new_message: Dict):
-    message = new_message["message"]
-    context = new_message["context"]
-    body = new_message["body"]
-    author = new_message["author"]
-    submission_id = new_message["submission_id"]
+            if not self.check_permissions(access, command, author, context, submission_id):
+                return None, None
 
-    contexts_needed = this_command["context"]
-    if not "any" in contexts_needed:
-        if not context in contexts_needed:
-            logger.info(
-                f"{body.lower()} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Disallowed Context | Has: {context} Needs one of: {contexts_needed}"
-            )
+            submission = self.parent.reddit.submission(to_unmonitor)
+            try:
+                submission.allow_live_comments
+                if to_unmonitor in self.parent.monitored_streams["monitored"]:
+                    self.parent.monitored_streams["unmonitored"][
+                        to_unmonitor
+                    ] = self.parent.monitored_streams["monitored"][to_unmonitor]
+                    self.parent.monitored_streams["monitored"].pop(to_unmonitor)
+
+                    reply = f"Stream {to_unmonitor} is no longer being monitored."
+                    message.reply(reply)
+                    self.log(command, author, context, submission_id, reply=reply)
+                    return "monitored_streams", "save"
+                else:
+                    reply = f"Stream {to_unmonitor} was not being monitored."
+                    message.reply(reply)
+                    self.log(command, author, context, submission_id, reply=reply)
+                    return None, None
+
+            except AttributeError:
+                if to_unmonitor in self.parent.monitored_posts:
+                    self.parent.monitored_posts.pop(to_unmonitor)
+
+                    reply = f"Post {to_unmonitor} is no longer being monitored."
+                    message.reply(reply)
+                    self.log(command, author, context, submission_id, reply=reply)
+                    return "monitored_posts", "save"
+                else:
+                    reply = f"Post {to_unmonitor} was not being monitored."
+                    message.reply(reply)
+                    self.log(command, author, context, submission_id, reply=reply)
+
+                    return None, None
+
+        else:
+            return None, None
+
+    def reload_commands(self, new_message: Dict) -> Tuple[Optional[str], Optional[str]]:
+        context = new_message["context"]
+        body = new_message["body"]
+        author = new_message["author"]
+        submission_id = new_message["submission_id"]
+
+        command = "!reload_commands"
+
+        access = {"admins"}
+        if not self.check_permissions(access, command, author, context, submission_id):
+            return None, None
+
+        reply = "Commands queued to reload."
+        new_message["message"].reply(reply)
+        self.log(command, author, context, submission_id, reply=reply)
+        return "commands", "load"
+
+    def basic_commands_func(self, this_command: Dict, new_message: Dict):
+        message = new_message["message"]
+        context = new_message["context"]
+        body = new_message["body"]
+        author = new_message["author"]
+        submission_id = new_message["submission_id"]
+
+        command = body.lower()
+
+        contexts_needed = this_command["context"]
+        if not "any" in contexts_needed:
+            if not context in contexts_needed:
+                notices = [
+                    "Disallowed Context",
+                    f"Has: '{context}' Needs one of: {contexts_needed}",
+                ]
+                self.log(command, author, context, submission_id, notices)
+                return
+
+        access = set(this_command["permissions"])
+        if not self.check_permissions(access, command, author, context, submission_id):
             return
 
-    permissions_needed = set(this_command["permissions"])
-    if not "any" in permissions_needed:
-        user_permissions = get_permissions(user_dict, author)
-        if not permissions_needed.intersection(user_permissions):
-            logger.info(
-                f"{body.lower()} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Insufficent Permission | Has: {user_permissions} Needs one of: {permissions_needed}"
+        reply_message = this_command["message"]
+        message.reply(reply_message)
+        self.log(command, author, context, submission_id, reply=reply_message)
+
+    def check_message(self, new_message: Dict):
+        message = new_message["message"]
+        body = new_message["body"]
+        author = new_message["author"]
+        context = new_message["context"]
+        submission_id = new_message["submission_id"]
+        message_body_lower = body.lower()
+
+        message_length = len(message_body_lower)
+        if message_length > 45:
+            notices = [f"Ignored due to message length ({len(message_body_lower)})."]
+            self.log(
+                message_body_lower, author, context, submission_id, notices, None, logging.DEBUG
             )
-            return
+            return None, None
 
-    reply_message = this_command["message"]
-    message.reply(reply_message)
-    logger.info(
-        f"{body.lower()} used by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Replied: {reply_message}"
-    )
+        elif message_body_lower in self.parent.basic_commands:
+            this_command = self.parent.basic_commands[message_body_lower]
+            self.basic_commands_func(this_command, new_message)
+            return None, None
 
+        elif message_body_lower == "!subscribe":
+            return self.subscribe(new_message)
 
-def check_message(
-    script_dir: Path,
-    basic_commands: Dict,
-    users: Dict,
-    reddit: praw.Reddit,
-    monitored_streams: Dict,
-    monitored_posts: Dict,
-    new_message: Dict,
-):
-    message = new_message["message"]
-    body = new_message["body"]
-    author = new_message["author"]
-    context = new_message["context"]
-    submission_id = new_message["submission_id"]
-    message_body_lower = body.lower()
+        elif message_body_lower == "!unsubscribe":
+            return self.unsubscribe(new_message)
 
-    message_length = len(message_body_lower)
-    if message_length > 45:
-        logger.debug(
-            f"Long message ({message_length} characters) sent by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | Ignored due to message length."
-        )
-        return None
+        elif "!subother" in message_body_lower:
+            return self.subother(new_message)
 
-    elif message_body_lower in basic_commands:
-        this_command = basic_commands[message_body_lower]
-        basic_commands_func(users, this_command, new_message)
-        return None
+        elif "!unsubother" in message_body_lower:
+            return self.unsubother(new_message)
 
-    elif message_body_lower == "!subscribe":
-        return subscribe(script_dir, users, new_message)
+        elif "!monitor" in message_body_lower:
+            return self.monitor(new_message)
 
-    elif message_body_lower == "!unsubscribe":
-        return unsubscribe(script_dir, users, new_message)
+        elif "!end" in message_body_lower:
+            return self.end(new_message)
 
-    elif "!subother" in message_body_lower:
-        return subother(script_dir, users, reddit, new_message)
+        elif message_body_lower == "!reload commands":
+            return self.reload_commands(new_message)
 
-    elif "!unsubother" in message_body_lower:
-        return unsubother(script_dir, users, new_message)
-
-    elif "!monitor" in message_body_lower:
-        return monitor(script_dir, users, reddit, monitored_streams, monitored_posts, new_message)
-
-    elif "!end" in message_body_lower:
-        return end(script_dir, users, reddit, monitored_streams, monitored_posts, new_message)
-
-    elif message_body_lower == "!reload commands":
-        return reload_commands(users, new_message)
-
-    logger.debug(
-        f"{body} sent by u/{author} in {context}{' at ' + submission_id if submission_id is not None else ''} | No command found."
-    )
-    return None
+        notices = ["No command found."]
+        self.log(message_body_lower, author, context, submission_id, notices, None, logging.DEBUG)
+        return None, None

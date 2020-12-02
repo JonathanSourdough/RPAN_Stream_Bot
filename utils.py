@@ -3,7 +3,18 @@ from pathlib import Path
 import logging
 import json
 
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
 logger = logging.getLogger("bot.utils")
+
+
+def launch_chrome(chromedriver_path: Path):
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--window-size=1920x1080")
+    driver = webdriver.Chrome(str(chromedriver_path), chrome_options=chrome_options)
+    return driver
 
 
 def load_json(json_path: Path) -> Optional[Dict]:
