@@ -39,7 +39,7 @@ class Commands:
         context: str,
         submission_id: Optional[str],
         log: bool = True,
-    ) -> Set[str]:
+    ) -> Tuple[bool, Set[str]]:
 
         user_permissions = set()
         for permission, user_names in self.parent.users.items():
@@ -54,9 +54,9 @@ class Commands:
                         f"Has: {user_permissions} Needs one of: {access}",
                     ]
                     self.log(command, author, context, submission_id, notices=notices)
-                return user_permissions
+                return False, user_permissions
 
-        return user_permissions
+        return True, user_permissions
 
     def subscribe(self, new_message: Dict) -> Tuple[Optional[str], Optional[str]]:
         message = new_message["message"]
@@ -68,7 +68,8 @@ class Commands:
         command = "!subscribe"
 
         access = {"admins", "moderators"}
-        if not self.check_permissions(access, command, author, context, submission_id):
+        allowed, _ = self.check_permissions(access, command, author, context, submission_id)
+        if not allowed:
             return None, None
 
         if author not in self.parent.users["subscribers"]:
@@ -119,7 +120,8 @@ class Commands:
         command = f"!subother {to_subscribe}"
 
         access = {"admins", "moderators"}
-        if not self.check_permissions(access, command, author, context, submission_id):
+        allowed, _ = self.check_permissions(access, command, author, context, submission_id)
+        if not allowed:
             return None, None
 
         try:
@@ -156,7 +158,8 @@ class Commands:
         command = f"!unsubother {to_unsubscribe}"
 
         access = {"admins", "moderators"}
-        if not self.check_permissions(access, command, author, context, submission_id):
+        allowed, _ = self.check_permissions(access, command, author, context, submission_id)
+        if not allowed:
             return None, None
 
         if to_unsubscribe in self.parent.users["subscribers"]:
@@ -184,7 +187,8 @@ class Commands:
         command = f"!monitor {to_monitor}"
 
         access = {"admins", "moderators"}
-        if not self.check_permissions(access, command, author, context, submission_id):
+        allowed, _ = self.check_permissions(access, command, author, context, submission_id)
+        if not allowed:
             return None, None
 
         submission = self.parent.reddit.submission(to_monitor)
@@ -236,7 +240,8 @@ class Commands:
         if context in ["stream", "post"]:
             command = "!end"
 
-            if not self.check_permissions(access, command, author, context, submission_id):
+            allowed, _ = self.check_permissions(access, command, author, context, submission_id)
+            if not allowed:
                 return None, None
 
             if submission_id in self.parent.monitored_streams["monitored"]:
@@ -260,7 +265,8 @@ class Commands:
 
             command = f"!end {to_unmonitor}"
 
-            if not self.check_permissions(access, command, author, context, submission_id):
+            allowed, _ = self.check_permissions(access, command, author, context, submission_id)
+            if not allowed:
                 return None, None
 
             submission = self.parent.reddit.submission(to_unmonitor)
@@ -306,10 +312,11 @@ class Commands:
         author = new_message["author"]
         submission_id = new_message["submission_id"]
 
-        command = "!reload_commands"
+        command = "!reload commands"
 
         access = {"admins"}
-        if not self.check_permissions(access, command, author, context, submission_id):
+        allowed, _ = self.check_permissions(access, command, author, context, submission_id)
+        if not allowed:
             return None, None
 
         reply = "Commands queued to reload."
@@ -337,7 +344,8 @@ class Commands:
                 return
 
         access = set(this_command["permissions"])
-        if not self.check_permissions(access, command, author, context, submission_id):
+        allowed, _ = self.check_permissions(access, command, author, context, submission_id)
+        if not allowed:
             return
 
         reply_message = this_command["message"]
@@ -346,11 +354,10 @@ class Commands:
 
     def check_message(self, new_message: Dict):
         message = new_message["message"]
-        body = new_message["body"]
         author = new_message["author"]
         context = new_message["context"]
         submission_id = new_message["submission_id"]
-        message_body_lower = body.lower()
+        message_body_lower = new_message["body"].lower()
 
         message_length = len(message_body_lower)
         if message_length > 45:

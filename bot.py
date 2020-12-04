@@ -126,16 +126,17 @@ class Bot:
             if post_id not in self.websockets_dict:
                 if websocket_address is None:
                     success = get_websocket_address(post_id)
-                    if not success:
-                        continue
-                    save_streams = True
+                    if success:
+                        save_streams = True
             else:
                 this_websocket = self.websockets_dict[post_id]
 
                 if this_websocket["socket"] is None:
-                    if this_websocket["timeout_length"] > 240:
+                    if this_websocket["timeout_length"] >= 60:
                         if self.webdriver_connected is None:
+                            logger.info(f"Loading webdriver to {post_id}")
                             self.webdriver.get(f"http://redd.it/{post_id}")
+                            logger.info(f"Webdriver loaded to {post_id}")
                             self.webdriver_connected = post_id
                     if (
                         this_websocket["last_tried"] + this_websocket["timeout_length"]
@@ -144,13 +145,14 @@ class Bot:
                         success = get_websocket_address(post_id)
                         if not success:
                             this_websocket["last_tried"] = time.time()
-                            this_websocket["timeout_length"] *= 2
+                            if this_websocket["timeout_length"] < 60:
+                                this_websocket["timeout_length"] += 30
                             logger.warning(
-                                f"Could not obtain new socket address for {post_id}. Increasing timeout to {this_websocket['timeout_length']}"
+                                f"Could not obtain new socket address for {post_id}. Timing out for {this_websocket['timeout_length']}"
                             )
                             continue
                         if self.webdriver_connected == post_id:
-                            self.webdriver.close()
+                            self.webdriver.get("https://www.google.com")
                             self.webdriver_connected = None
                         save_streams = True
                     else:
@@ -165,11 +167,13 @@ class Bot:
 
             websocket_address = self.monitored_streams["monitored"][post_id]
             try:
-                if this_websocket["socket"] is not None:
+                if (this_websocket["socket"] is not None) or websocket_address is None:
                     continue
 
                 this_websocket["socket"] = websocket.create_connection(websocket_address)
                 this_websocket["socket"].settimeout(0.1)
+                this_websocket["timeout_length"] = 0
+                this_websocket["last_tried"] = time.time()
 
                 logger.info(f"Socket for {post_id} connected at {websocket_address}")
 
@@ -213,6 +217,7 @@ class Bot:
                         "context": "stream",
                         "submission_id": socket_data["payload"]["link_id"].split("_")[1],
                     }
+
                     update, mode = self.commands.check_message(new_message)
                     self.check_update(update, mode)
 
@@ -220,6 +225,7 @@ class Bot:
                     logger.debug(f"End of socket messages from {post_id}")
                     socket_empty = True
                 except Exception as e:
+                    # TODO figure out how exactly reddit disconnects the socket
                     logger.error(f"Socket for post {post_id} excepted {e}")
                     socket_empty = True
 
@@ -245,7 +251,7 @@ class Bot:
                                 self.config_dir / "monitored_streams.json", self.monitored_streams
                             )
                             logger.info(
-                                f"{open_stream['source']} has gone live on {submission.subreddit} at ({submission.shortlink}) notifing {len(users['subscribers'])} subscribers."
+                                f"{open_stream['source']} has gone live on {submission.subreddit} at ({submission.shortlink}) notifing {len(self.users['subscribers'])} subscribers."
                             )
 
                             embed = discord_webhook.DiscordEmbed(
@@ -269,7 +275,7 @@ class Bot:
                             self.webhook.embeds = []
                             self.webhook.set_content("")
 
-                            for subscriber in users["subscribers"]:
+                            for subscriber in self.users["subscribers"]:
                                 self.reddit.redditor(subscriber).message(
                                     f"Hi {subscriber}, u/{open_stream['source']} is live on {submission.subreddit}!",
                                     f"[{submission.title}]({submission.shortlink})",
@@ -302,7 +308,7 @@ class Bot:
                 for comment in comment_list[comment_count:]:
                     author = comment.author.name
 
-                    if author == reddit.user.me().name:
+                    if author == self.reddit.user.me().name:
                         continue
 
                     new_post_messages.append(
@@ -377,4 +383,8 @@ if __name__ == "__main__":
 
     logger.info("Initializing bot")
     bot = Bot()
-    bot.run_with_respawn()
+    try:
+        bot.run_with_respawn()
+    except Exception as e:
+        bot.webdriver.quit()
+        logger.critical(f"Program crashing out with '{e}' as exception")

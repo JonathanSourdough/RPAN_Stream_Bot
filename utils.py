@@ -3,8 +3,8 @@ from pathlib import Path
 import logging
 import json
 
-from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium import webdriver
 
 logger = logging.getLogger("bot.utils")
 
@@ -12,7 +12,10 @@ logger = logging.getLogger("bot.utils")
 def launch_chrome(chromedriver_path: Path):
     chrome_options = Options()
     chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--window-size=1920x1080")
+    chrome_options.add_argument("--window-size=640x480")
+    chrome_options.add_experimental_option(
+        "prefs", {"profile.managed_default_content_settings.images": 2, "disk-cache-size": 4096}
+    )
     driver = webdriver.Chrome(str(chromedriver_path), chrome_options=chrome_options)
     return driver
 
