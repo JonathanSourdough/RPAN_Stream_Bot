@@ -71,7 +71,7 @@ class Bot:
                 basic_commands = utils.load_json(self.config_dir / "basic_commands.json")
                 global commands
                 commands = reload(commands)
-                self.commands = commands.Commands
+                self.commands = commands.Commands(self)
             elif update == "users":
                 self.users = utils.load_json(self.config_dir / "users.json")
             elif update == "monitored_posts":
@@ -386,5 +386,6 @@ if __name__ == "__main__":
     try:
         bot.run_with_respawn()
     except Exception as e:
+        bot.webdriver.close()
         bot.webdriver.quit()
         logger.critical(f"Program crashing out with '{e}' as exception")

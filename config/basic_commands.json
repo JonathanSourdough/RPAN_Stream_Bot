@@ -85,5 +85,16 @@
             "post"
         ],
         "message": "This bot was created by u/JonathanSourdough"
+    },
+    "!ping": {
+        "permissions": [
+            "admins"
+        ],
+        "context": [
+            "stream",
+            "inbox",
+            "post"
+        ],
+        "message": "Pong!"
     }
 }
