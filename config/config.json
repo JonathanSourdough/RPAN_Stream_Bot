@@ -1,0 +1,18 @@
+{
+    "monitored_redditor": "",
+    "monitored_subreddits": [
+        "RedditSessions"
+    ],
+    "announcements_webhook": {
+        "hooks": [],
+        "mention": [
+            "@here",
+            "<@&792300983434084362>"
+        ],
+        "image": null
+    },
+    "errors_webhook": {
+        "hooks": [],
+        "mention": []
+    }
+}
