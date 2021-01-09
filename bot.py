@@ -212,7 +212,7 @@ class Bot:
             if post_id not in self.websockets_dict:
                 self.websockets_dict[post_id] = {
                     "socket": None,
-                    "timeout_length": 0,
+                    "timeout_length": 15,
                     "last_tried": time.time(),
                     "retry_count": 0,
                 }
@@ -340,7 +340,7 @@ class Bot:
                     self.check_update(update, mode)
 
                 except websocket.WebSocketTimeoutException:
-                    logger.warn(f"Socket at {post_id}")
+                    logger.debug(f"Socket at {post_id} timed out.")
                     socket_empty = True
                 except Exception as e:
                     # TODO figure out how exactly reddit disconnects the socket
@@ -405,7 +405,7 @@ class DiscordHandler(logging.Handler):
     def __init__(self, webhooks, mention):
         logging.Handler.__init__(self)
         self.webhook = discord_webhook.DiscordWebhook(webhooks)
-        self.mention = ', '.join(mention)
+        self.mention = ", ".join(mention)
 
     def emit(self, record):
         try:
@@ -444,7 +444,9 @@ if __name__ == "__main__":
     logger.addHandler(consolehandler)
 
     if config["errors_webhook"]["hooks"]:
-        discord_handler = DiscordHandler(config["errors_webhook"]["hooks"], config['errors_webhook']['mention']))
+        discord_handler = DiscordHandler(
+            config["errors_webhook"]["hooks"], config["errors_webhook"]["mention"]
+        )
         # discord_handler.setLevel(logging.INFO)
         discord_handler.setFormatter(formatter)
         logger.addHandler(discord_handler)
