@@ -1,4 +1,4 @@
-from typing import Optional, Union, Dict, List, Tuple, Iterator
+from typing import Optional, Union, Dict, List, Tuple, Iterator, Generator
 from importlib import reload
 from pathlib import Path
 import logging
@@ -16,11 +16,12 @@ import commands
 
 
 class Bot:
-    def __init__(self, script_dir: Path, config_dir: Path, secrets):
+    def __init__(self, script_dir: Path, config_dir: Path, config):
         self.script_dir = script_dir
         self.config_dir = config_dir
 
-        self.secrets = secrets
+        self.config = config
+        self.secrets = utils.load_json(config_dir / "secrets.json")
         self.users = utils.load_json(self.config_dir / "users.json")
         self.basic_commands = utils.load_json(self.config_dir / "basic_commands.json")
         self.monitored_streams = utils.load_json(self.config_dir / "monitored_streams.json")
@@ -28,7 +29,12 @@ class Bot:
 
         self.commands = commands.Commands(self)
 
-        self.webhook = discord_webhook.DiscordWebhook(url=self.secrets["webhooks"]["announcements"])
+        if self.config["announcements_webhook"]["hooks"]:
+            self.webhook = discord_webhook.DiscordWebhook(
+                url=self.config["announcements_webhook"]["hooks"]
+            )
+        else:
+            self.webhook = None
 
         logger.debug("Starting chrome webdriver")
         self.webdriver = utils.launch_chrome(self.script_dir / "other" / "chromedriver")
@@ -42,24 +48,18 @@ class Bot:
             client_secret=self.secrets["app_secret"],
             user_agent=self.secrets["user_agent"],
         )
-
-        u_jcrayz = self.reddit.redditor("JCrayZ")
-        self.monitored_subreddits = ("RedditSessions",)
+        self.bot_name = self.reddit.user.me().name
+        self.monitored_redditor = self.reddit.redditor(self.config["monitored_redditor"])
+        self.monitored_subreddits = self.config["monitored_subreddits"]
 
         logger.debug(f"Adding submission/inbox streams")
-        self.open_feed_streams = []
-        self.open_feed_streams.append(
-            {
-                "stream": u_jcrayz.stream.submissions(pause_after=0, skip_existing=True),
-                "source": u_jcrayz,
-            }
-        )
-        self.open_feed_streams.append(
-            {
-                "stream": self.reddit.inbox.stream(pause_after=0, skip_existing=True),
-                "source": self.reddit.inbox,
-            }
-        )
+        self.open_feed_streams = {
+            self.monitored_redditor: self.monitored_redditor.stream.submissions(
+                pause_after=0, skip_existing=True
+            ),
+            self.reddit.inbox: self.reddit.inbox.stream(pause_after=0, skip_existing=True),
+        }
+
         self.websockets_dict = {}
 
     def check_update(self, update: Optional[str], mode=Optional[str]) -> None:
@@ -88,8 +88,8 @@ class Bot:
             elif update == "monitored_streams":
                 utils.save_json(self.config_dir / "monitored_streams.json", self.monitored_streams)
 
-    def check_redditor(self, open_stream: Dict):
-        for submission in open_stream["stream"]:
+    def check_redditor(self, stream_source: praw.models.Redditor, submission_stream: Generator):
+        for submission in submission_stream:
             if submission is None:
                 break
             if not submission.subreddit in self.monitored_subreddits:
@@ -99,25 +99,27 @@ class Bot:
                 self.monitored_streams["monitored"][submission.id] = None
 
                 utils.save_json(self.config_dir / "monitored_streams.json", self.monitored_streams)
-                redditor_name = str(open_stream["source"])
+                redditor_name = str(stream_source)
                 logger.info(
                     f"{redditor_name} has gone live on {submission.subreddit} at ({submission.shortlink}) notifing {len(self.users['subscribers'])} subscribers, and posting to discord.",
                 )
 
-                utils.webhook_post(
-                    webhook=self.webhook,
-                    plain_text_message="@here",
-                    embeds=[
-                        utils.discord_embed_builder(
-                            embed_title=f"u/{redditor_name} has gone live on {submission.subreddit}!",
-                            embed_description=f"[{submission.title}]({submission.shortlink})",
-                            embed_image="https://cdn.discordapp.com/attachments/247673665624342529/783525595174141962/qgcqva8epe551.png",
-                            author=open_stream["source"],
-                            author_url=f"https://www.reddit.com/u/{redditor_name}",
-                            author_icon="https://cdn.discordapp.com/attachments/247673665624342529/783533920951074846/unknown.png",
-                        )
-                    ],
-                )
+                if self.webhook is not None:
+                    utils.webhook_post(
+                        webhook=self.webhook,
+                        plain_text_message=", ".join(
+                            self.config["announcements_webhook"]["mention"]
+                        ),
+                        embeds=[
+                            utils.discord_embed_builder(
+                                embed_title=f"u/{redditor_name} has gone live on {submission.subreddit}!",
+                                embed_description=f"[{submission.title}]({submission.shortlink})",
+                                embed_image=self.config["announcements_webhook"]["image"],
+                                author=redditor_name,
+                                author_url=f"https://www.reddit.com/u/{redditor_name}",
+                            )
+                        ],
+                    )
 
                 for subscriber in self.users["subscribers"]:
                     self.reddit.redditor(subscriber).message(
@@ -126,8 +128,8 @@ class Bot:
                     )
                     logger.debug(f"Sent subscriber u/{subscriber} gone live message.")
 
-    def check_inbox(self, inbox: Dict):
-        for message in inbox["stream"]:
+    def check_inbox(self, inbox_stream: Generator):
+        for message in inbox_stream:
             if message is None:
                 return
             update, mode = self.commands.check_message(
@@ -153,7 +155,7 @@ class Bot:
                     logger.debug(f"{post_id} unmonitored mid-loop breaking loop.")
                     break
                 author = comment.author.name
-                if author == self.reddit.user.me().name:
+                if author == self.bot_name:
                     continue
 
                 update, mode = self.commands.check_message(
@@ -175,7 +177,8 @@ class Bot:
     def remove_old_sockets(self):
         for post_id in list(self.websockets_dict.keys()):
             if post_id not in self.monitored_streams["monitored"]:
-                self.websockets_dict[post_id]["socket"].close()
+                if self.websockets_dict[post_id]["socket"] is not None:
+                    self.websockets_dict[post_id]["socket"].close()
                 self.websockets_dict.pop(post_id)
                 logger.info(f"Socket for {post_id} disconnected.")
 
@@ -207,6 +210,12 @@ class Bot:
         save_streams = False
         for post_id, websocket_address in self.monitored_streams["monitored"].items():
             if post_id not in self.websockets_dict:
+                self.websockets_dict[post_id] = {
+                    "socket": None,
+                    "timeout_length": 0,
+                    "last_tried": time.time(),
+                    "retry_count": 0,
+                }
                 if websocket_address is None:
                     success = get_websocket_address(post_id)
                     if success:
@@ -216,11 +225,12 @@ class Bot:
                         save_streams = True
                     else:
                         logger.warning(f"Failed retrieving new socket address. for {post_id}")
+                        continue
             else:
                 this_websocket = self.websockets_dict[post_id]
 
                 if this_websocket["socket"] is None:
-                    if self.webdriver_connected is None:
+                    if self.webdriver_connected is None or self.webdriver_connected == post_id:
                         if (
                             this_websocket["last_tried"] + this_websocket["timeout_length"]
                             < time.time()
@@ -234,6 +244,7 @@ class Bot:
                                         f"Could not obtain new socket address for {post_id} after {this_websocket['retry_count']} retries. Timing out for {this_websocket['timeout_length']} seconds. Loading webdriver to page."
                                     )
                                     self.webdriver.get(f"http://redd.it/{post_id}")
+                                    self.webdriver_connected = post_id
                                     logger.info(f"Webdriver loaded to {post_id}")
                                 elif this_websocket["retry_count"] in (6, 12, 20):
                                     logger.warning(
@@ -242,10 +253,10 @@ class Bot:
                                     self.webdriver.refresh()
                                     logger.info("Webdriver reloaded.")
                                 elif this_websocket["retry_count"] == 30:
-                                    self.parent.monitored_streams["unmonitored"][
+                                    self.monitored_streams["unmonitored"][
                                         post_id
-                                    ] = self.parent.monitored_streams["monitored"][post_id]
-                                    self.parent.monitored_streams["monitored"].pop(post_id)
+                                    ] = self.monitored_streams["monitored"][post_id]
+                                    self.monitored_streams["monitored"].pop(post_id)
                                     self.webdriver.get("https://www.google.com")
                                     self.webdriver_connected = None
                                     logger.error(
@@ -262,23 +273,18 @@ class Bot:
                             save_streams = True
                         else:
                             continue
-
-            if post_id not in self.websockets_dict:
-                this_websocket = {
-                    "socket": None,
-                    "timeout_length": 0,
-                    "last_tried": time.time(),
-                    "retry_count": 0,
-                }
+                    else:
+                        continue
 
             websocket_address = self.monitored_streams["monitored"][post_id]
             try:
+                this_websocket = self.websockets_dict[post_id]
                 if (this_websocket["socket"] is not None) or websocket_address is None:
                     continue
 
                 this_websocket["socket"] = websocket.create_connection(websocket_address)
                 this_websocket["socket"].settimeout(0.1)
-                this_websocket["timeout_length"] = 0
+                this_websocket["timeout_length"] = 15
                 this_websocket["last_tried"] = time.time()
                 this_websocket["retry_count"] = 0
 
@@ -305,6 +311,10 @@ class Bot:
                 continue
 
             logger.debug(f"Checking socket for {post_id}")
+            if not this_websocket["socket"].connected:
+                this_websocket["socket"] = None
+                continue
+
             socket_empty = False
             while not socket_empty:
                 try:
@@ -330,7 +340,7 @@ class Bot:
                     self.check_update(update, mode)
 
                 except websocket.WebSocketTimeoutException:
-                    logger.debug(f"End of socket messages from {post_id}")
+                    logger.warn(f"Socket at {post_id}")
                     socket_empty = True
                 except Exception as e:
                     # TODO figure out how exactly reddit disconnects the socket
@@ -340,22 +350,26 @@ class Bot:
     def run(self):
         logger.info(f"Starting bot loop")
         while True:
-            new_messages = []
-
-            for open_stream in self.open_feed_streams:
-                logger.debug(f"Checking praw stream {open_stream['source']}")
-                # Check for new rpan stream
-                try:
-                    if type(open_stream["source"]) == praw.models.Redditor:
-                        self.check_redditor(open_stream)
-
-                    # Check for new inbox messages
-                    elif type(open_stream["source"]) == praw.models.inbox.Inbox:
+            for stream_source, open_stream in self.open_feed_streams.items():
+                logger.debug(f"Checking praw stream {stream_source}")
+                if type(stream_source) == praw.models.Redditor:
+                    try:
+                        self.check_redditor(stream_source, open_stream)
+                    except prawcore.exceptions.ServerError as e:
+                        open_stream = stream_source.stream.submissions(
+                            pause_after=0, skip_existing=True
+                        )
+                        logger.error(
+                            f"Reddit feed stream for {stream_source} excepted {e}, skipping and reinitializing the generator."
+                        )
+                elif type(stream_source) == praw.models.inbox.Inbox:
+                    try:
                         self.check_inbox(open_stream)
-                except prawcore.exceptions.ServerError:
-                    logger.error(
-                        f"Reddit feed stream for {open_stream['source']} excepted {e}, skipping and continuing."
-                    )
+                    except prawcore.exceptions.ServerError as e:
+                        open_stream = stream_source.stream(pause_after=0, skip_existing=True)
+                        logger.error(
+                            f"Reddit feed stream for {stream_source} excepted {e}, skipping and reinitializing the generator."
+                        )
 
             self.check_posts()
 
@@ -388,9 +402,10 @@ class UTC_Formatter(logging.Formatter):
 
 
 class DiscordHandler(logging.Handler):
-    def __init__(self, webhooks):
+    def __init__(self, webhooks, mention):
         logging.Handler.__init__(self)
         self.webhook = discord_webhook.DiscordWebhook(webhooks)
+        self.mention = ', '.join(mention)
 
     def emit(self, record):
         try:
@@ -398,7 +413,10 @@ class DiscordHandler(logging.Handler):
             if record.levelno in (logging.WARN, logging.INFO):
                 utils.webhook_post(self.webhook, f"`{msg}`")
             if record.levelno in (logging.ERROR, logging.CRITICAL):
-                utils.webhook_post(self.webhook, f"<@122165502847090698> `{msg}`")
+                utils.webhook_post(
+                    self.webhook,
+                    f"{self.mention} `{msg}`",
+                )
         except Exception:
             self.handleError(record)
 
@@ -406,7 +424,7 @@ class DiscordHandler(logging.Handler):
 if __name__ == "__main__":
     script_dir = Path(__file__).resolve().parent
     config_dir = script_dir / "config"
-    secrets = utils.load_json(config_dir / "secrets.json")
+    config = utils.load_json(config_dir / "config.json")
 
     # setup logging
     logger = logging.getLogger("bot")
@@ -425,13 +443,14 @@ if __name__ == "__main__":
     consolehandler.setFormatter(formatter)
     logger.addHandler(consolehandler)
 
-    discord_handler = DiscordHandler(secrets["webhooks"]["errors"])
-    # discord_handler.setLevel(logging.INFO)
-    discord_handler.setFormatter(formatter)
-    logger.addHandler(discord_handler)
+    if config["errors_webhook"]["hooks"]:
+        discord_handler = DiscordHandler(config["errors_webhook"]["hooks"], config['errors_webhook']['mention']))
+        # discord_handler.setLevel(logging.INFO)
+        discord_handler.setFormatter(formatter)
+        logger.addHandler(discord_handler)
 
     logger.info("Initializing bot")
-    bot = Bot(script_dir, config_dir, secrets)
+    bot = Bot(script_dir, config_dir, config)
     try:
         bot.run_with_respawn()
     except Exception as e:

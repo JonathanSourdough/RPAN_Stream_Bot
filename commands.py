@@ -237,6 +237,8 @@ class Commands:
 
         access = {"admins", "moderators"}
 
+        # TODO fix so is better
+
         if context in ["stream", "post"]:
             command = "!end"
 
@@ -358,6 +360,9 @@ class Commands:
         context = new_message["context"]
         submission_id = new_message["submission_id"]
         message_body_lower = new_message["body"].lower()
+
+        # TODO add in functionality to handle a u/Bot_Name mention, and reply.
+        # TODO also add !at (comment/post) post_id
 
         message_length = len(message_body_lower)
         if message_length > 45:
