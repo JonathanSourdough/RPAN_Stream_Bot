@@ -6,7 +6,7 @@
     "announcements_webhook": {
         "hooks": [],
         "mention": [
-            "@here",
+            "@here"
         ],
         "image": null
     },
